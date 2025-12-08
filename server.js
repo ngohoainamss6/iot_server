@@ -4,10 +4,9 @@ const cors = require('cors');
 const { Pool } = require('pg');
 
 const app = express();
-app.use(cors());
+app.use(cors()); // cho phép static site fetch API
 app.use(bodyParser.json());
 app.use(bodyParser.urlencoded({ extended: true }));
-app.use(express.static('public'));
 
 // ================= PostgreSQL =================
 const pool = new Pool({
@@ -82,6 +81,21 @@ app.get('/api/status', async (req, res) => {
     } catch (err) {
         console.error(err);
         res.status(500).json({ status: 'error' });
+    }
+});
+
+// ================= API lệnh cho ESP =================
+app.get('/api/command', async (req, res) => {
+    try {
+        const result = await pool.query('SELECT * FROM system_status ORDER BY id DESC LIMIT 1');
+        const status = result.rows[0];
+        let cmd = '';
+        cmd += status.pump ? 'PUMP:ON;' : 'PUMP:OFF;';
+        cmd += 'MODE:' + status.mode + ';';
+        res.send(cmd);
+    } catch (err) {
+        console.error(err);
+        res.status(500).send('ERROR');
     }
 });
 
