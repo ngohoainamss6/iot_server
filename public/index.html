@@ -1,0 +1,26 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>IoT Dashboard</title>
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<h1>IoT Dashboard</h1>
+<div class="dashboard">
+    <div class="box" id="soil">Soil: --</div>
+    <div class="box" id="temp">Temp: --</div>
+    <div class="box" id="hum">Humidity: --</div>
+    <div class="box" id="flow">Flow: --</div>
+    <div class="box" id="pump">Pump: --</div>
+    <div class="box" id="mode">Mode: --</div>
+</div>
+
+<div class="controls">
+    <button onclick="togglePump()">Toggle Pump</button>
+    <button onclick="toggleMode()">Toggle Mode</button>
+</div>
+
+<script src="script.js"></script>
+</body>
+</html>
