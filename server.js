@@ -65,54 +65,70 @@ app.post('/api/save', async (req, res) => {
   } catch(e){ console.error(e); res.status(500).json({status:'error'}); }
 });
 
-// ================= API UI =================
-app.get('/api/data', async (_,res)=>{
-  const r = await pool.query('SELECT * FROM sensor_data ORDER BY id DESC LIMIT 1');
-  res.json(r.rows[0] || {});
-});
-app.get('/api/status', async (_,res)=>{
-  const r = await pool.query('SELECT * FROM system_status ORDER BY id DESC LIMIT 1');
-  res.json(r.rows[0] || {});
-});
-app.post('/api/control', async (req,res)=>{
+// ================= API điều khiển từ UI =================
+app.post('/api/control', async (req, res) => {
   const { pump, mode, pump_power, add_schedule, remove_schedule } = req.body;
   console.log("🧭 Control received:", req.body);
+
   try {
     const lastData = await pool.query('SELECT * FROM command_queue ORDER BY id DESC LIMIT 1');
     const last = lastData.rows[0] || {};
-    let schedules = [];
-    if (last.schedules) try { schedules = JSON.parse(last.schedules); } catch { schedules = []; }
-    if (add_schedule) schedules.push(add_schedule);
-    if (remove_schedule !== undefined && remove_schedule < schedules.length) schedules.splice(remove_schedule,1);
 
-    // ✅ Xử lý giá trị pump chính xác cho cả string/boolean/number
+    let schedules = [];
+    if (last.schedules) {
+      try { schedules = JSON.parse(last.schedules); } catch (e) { schedules = []; }
+    }
+
+    if (add_schedule) schedules.push(add_schedule);
+    if (remove_schedule !== undefined && remove_schedule < schedules.length)
+      schedules.splice(remove_schedule, 1);
+
+    // ✅ FIX: xử lý đúng mọi kiểu giá trị pump
     let newPump;
     if (typeof pump === 'string') {
       newPump = pump.toLowerCase() === 'true' || pump === '1';
     } else if (typeof pump === 'number') {
       newPump = pump === 1;
+    } else if (typeof pump === 'boolean') {
+      newPump = pump;
     } else {
-      newPump = !!pump; // ép về boolean
+      newPump = last?.pump ?? false;
     }
 
+    const newMode = mode ?? (last?.mode ?? 'AUTO');
+    const newPumpPower = pump_power ?? (last?.pump_power ?? 36);
 
-    const newMode = mode ?? last?.mode ?? "AUTO";
-    const newPumpPower = pump_power ?? last?.pump_power ?? 36;
+    // Ghi vào command_queue
+    await pool.query(
+      `INSERT INTO command_queue (pump, mode, pump_power, schedules)
+       VALUES ($1, $2, $3, $4)`,
+      [newPump, newMode, newPumpPower, JSON.stringify(schedules)]
+    );
 
-    await pool.query(`INSERT INTO command_queue (pump,mode,pump_power,schedules) VALUES ($1,$2,$3,$4)`,
-      [newPump,newMode,newPumpPower,JSON.stringify(schedules)]);
-
+    // Cập nhật ngay system_status để UI thấy tức thì
     const sysData = await pool.query('SELECT * FROM system_status ORDER BY id DESC LIMIT 1');
     const lastSys = sysData.rows[0] || {};
     await pool.query(
       `INSERT INTO system_status (mode,pump,min_val,max_val,next_time,pump_power,schedules)
        VALUES ($1,$2,$3,$4,$5,$6,$7)`,
-      [newMode,newPump,lastSys.min_val ?? 30,lastSys.max_val ?? 70,lastSys.next_time ?? 0,newPumpPower,JSON.stringify(schedules)]
+      [
+        newMode,
+        newPump,
+        lastSys.min_val ?? 30,
+        lastSys.max_val ?? 70,
+        lastSys.next_time ?? 0,
+        newPumpPower,
+        JSON.stringify(schedules),
+      ]
     );
 
-    res.json({status:'success'});
-  } catch(e){ console.error(e); res.status(500).json({status:'error'}); }
+    res.json({ status: 'success' });
+  } catch (err) {
+    console.error("❌ /api/control error:", err);
+    res.status(500).json({ status: 'error' });
+  }
 });
+
 app.get('/api/command', async (_,res)=>{
   const r = await pool.query('SELECT * FROM command_queue ORDER BY id DESC LIMIT 1');
   const cmd = r.rows[0];
