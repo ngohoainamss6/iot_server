@@ -35,7 +35,6 @@ async function initDB() {
         CREATE TABLE IF NOT EXISTS system_status (
             id SERIAL PRIMARY KEY,
             mode VARCHAR(20) DEFAULT 'AUTO',
-            pump BOOLEAN DEFAULT FALSE,
             min_val INT DEFAULT 30,
             max_val INT DEFAULT 70,
             next_time INT DEFAULT 0,
