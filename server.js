@@ -85,10 +85,16 @@ app.post('/api/control', async (req,res)=>{
     if (add_schedule) schedules.push(add_schedule);
     if (remove_schedule !== undefined && remove_schedule < schedules.length) schedules.splice(remove_schedule,1);
 
+    // ✅ Xử lý giá trị pump chính xác cho cả string/boolean/number
     let newPump;
-    if (pump === true || pump === "true" || pump === 1) newPump = true;
-    else if (pump === false || pump === "false" || pump === 0) newPump = false;
-    else newPump = last?.pump ?? false;
+    if (typeof pump === 'string') {
+      newPump = pump.toLowerCase() === 'true' || pump === '1';
+    } else if (typeof pump === 'number') {
+      newPump = pump === 1;
+    } else {
+      newPump = !!pump; // ép về boolean
+    }
+
 
     const newMode = mode ?? last?.mode ?? "AUTO";
     const newPumpPower = pump_power ?? last?.pump_power ?? 36;
