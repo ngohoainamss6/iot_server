@@ -114,6 +114,19 @@ app.post('/api/control', async (req, res) => {
     }
 });
 
+
+// ================= API lấy dữ liệu sensor =================
+app.get('/api/data', async (req, res) => {
+  try {
+    const result = await pool.query('SELECT * FROM sensor_data ORDER BY id DESC LIMIT 1');
+    res.json(result.rows); // trả về dạng mảng
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ status: 'error' });
+  }
+});
+
+
 // ================= RUN SERVER =================
 const PORT = process.env.PORT || 3000;
 app.listen(PORT, () => console.log(`🚀 Server running on port ${PORT}`));
