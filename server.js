@@ -145,25 +145,28 @@ app.post('/api/control', async (req, res) => {
 // ================= API ESP lấy lệnh =================
 app.get('/api/command', async (req,res)=>{
     try{
+        // 🔄 Lấy lệnh mới nhất (không lọc pending nữa)
         const result = await pool.query(
-            `SELECT * FROM command_queue WHERE status='pending' ORDER BY id ASC LIMIT 1`
+            `SELECT * FROM command_queue ORDER BY id DESC LIMIT 1`
         );
         const cmd = result.rows[0];
         if(!cmd) return res.send('');
 
+        // Tạo chuỗi lệnh gửi về ESP
         let cmdStr = '';
         cmdStr += cmd.pump ? 'PUMP:ON;' : 'PUMP:OFF;';
         cmdStr += 'MODE:' + cmd.mode + ';';
         cmdStr += 'POWER:' + cmd.pump_power + ';';
         if(cmd.schedules) cmdStr += 'SCHEDULES:' + JSON.stringify(cmd.schedules) + ';';
 
-        await pool.query(`UPDATE command_queue SET status='sent' WHERE id=$1`, [cmd.id]);
+        // (Không cần update status nữa)
         res.send(cmdStr);
     }catch(err){
         console.error(err);
         res.status(500).send('ERROR');
     }
 });
+
 
 // ================= RUN SERVER =================
 const PORT = process.env.PORT || 3000;
