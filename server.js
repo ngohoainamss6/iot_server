@@ -1,4 +1,3 @@
-// server.js
 const express = require('express');
 const bodyParser = require('body-parser');
 const cors = require('cors');
@@ -65,20 +64,16 @@ initDB().catch(err => console.error("❌ DB init error:", err));
 app.post('/api/save', async (req, res) => {
     const { soil, temp, hum, flow, mode, min, max, next, pump_power, schedule } = req.body;
     try {
-        // Lưu dữ liệu cảm biến
         await pool.query(
             'INSERT INTO sensor_data (soil,temp,hum,flow) VALUES ($1,$2,$3,$4)',
             [soil, temp, hum, flow]
         );
 
-        // Parse schedule
-        let scheduleData = schedule;
-        if(typeof schedule === 'string'){
-            try { scheduleData = JSON.parse(schedule); } 
-            catch(e){ scheduleData = []; }
+        let scheduleData = [];
+        if(schedule){
+            try { scheduleData = JSON.parse(schedule); } catch(e){ scheduleData = []; }
         }
 
-        // Lưu trạng thái hiện tại (system_status)
         await pool.query(
             `INSERT INTO system_status (mode,pump,min_val,max_val,next_time,pump_power,schedules)
              VALUES ($1,$2,$3,$4,$5,$6,$7)`,
@@ -103,7 +98,7 @@ app.get('/api/data', async (req,res)=>{
     }
 });
 
-// ================= API lấy trạng thái UI =================
+// ================= API lấy trạng thái system_status =================
 app.get('/api/status', async (req,res)=>{
     try{
         const result = await pool.query('SELECT * FROM system_status ORDER BY id DESC LIMIT 1');
@@ -114,24 +109,26 @@ app.get('/api/status', async (req,res)=>{
     }
 });
 
-// ================= API UI gửi lệnh mới =================
+// ================= API UI gửi lệnh =================
 app.post('/api/control', async (req, res) => {
     const { pump, mode, pump_power, add_schedule, remove_schedule } = req.body;
     try {
-        // Lấy lệnh trước đó để tham khảo schedule
+        // Lấy lệnh trước đó
         const lastData = await pool.query('SELECT * FROM command_queue ORDER BY id DESC LIMIT 1');
         const last = lastData.rows[0] || {};
-        const schedules = last.schedules ? JSON.parse(last.schedules) : [];
 
-        // Thêm hoặc xóa lịch nếu có
-        if (add_schedule) schedules.push(add_schedule);
-        if (remove_schedule !== undefined) schedules.splice(remove_schedule, 1);
+        let schedules = [];
+        if(last.schedules){
+            try { schedules = JSON.parse(last.schedules); } catch(e){ schedules = []; }
+        }
 
-        const newPump = pump ?? (last?.pump ?? false);
+        if(add_schedule) schedules.push(add_schedule);
+        if(remove_schedule !== undefined && remove_schedule < schedules.length) schedules.splice(remove_schedule, 1);
+
+        const newPump = pump !== undefined ? pump : (last?.pump ?? false);
         const newMode = mode ?? (last?.mode ?? 'AUTO');
         const newPumpPower = pump_power ?? (last?.pump_power ?? 36);
 
-        // Lưu lệnh vào command_queue để ESP lấy
         await pool.query(
             `INSERT INTO command_queue (pump, mode, pump_power, schedules)
              VALUES ($1, $2, $3, $4)`,
@@ -145,27 +142,22 @@ app.post('/api/control', async (req, res) => {
     }
 });
 
-
-// ================= API ESP lấy lệnh mới =================
+// ================= API ESP lấy lệnh =================
 app.get('/api/command', async (req,res)=>{
     try{
-        // Lấy lệnh pending đầu tiên
         const result = await pool.query(
             `SELECT * FROM command_queue WHERE status='pending' ORDER BY id ASC LIMIT 1`
         );
         const cmd = result.rows[0];
-        if(!cmd) return res.send(''); // không có lệnh mới
+        if(!cmd) return res.send('');
 
-        // Gửi lệnh về ESP
         let cmdStr = '';
         cmdStr += cmd.pump ? 'PUMP:ON;' : 'PUMP:OFF;';
         cmdStr += 'MODE:' + cmd.mode + ';';
         cmdStr += 'POWER:' + cmd.pump_power + ';';
         if(cmd.schedules) cmdStr += 'SCHEDULES:' + JSON.stringify(cmd.schedules) + ';';
 
-        // Cập nhật trạng thái lệnh là sent
         await pool.query(`UPDATE command_queue SET status='sent' WHERE id=$1`, [cmd.id]);
-
         res.send(cmdStr);
     }catch(err){
         console.error(err);
@@ -173,6 +165,6 @@ app.get('/api/command', async (req,res)=>{
     }
 });
 
-// ================= RUN =================
+// ================= RUN SERVER =================
 const PORT = process.env.PORT || 3000;
 app.listen(PORT, ()=>console.log(`🚀 Server running on port ${PORT}`));
