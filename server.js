@@ -43,11 +43,13 @@ async function initDB() {
             time TIMESTAMP DEFAULT CURRENT_TIMESTAMP
         );
     `);
-@@ -48,15 +50,16 @@
+
+    console.log("✅ DB ready");
+}
+initDB().catch(err => console.error("❌ DB init error:", err));
 
 // ================= API nhận dữ liệu từ ESP =================
 app.post('/api/save', async (req, res) => {
-    const { soil, temp, hum, flow, mode, min, max, next } = req.body;
     const { soil, temp, hum, flow, mode, min, max, next, pump_power, schedule } = req.body;
     try {
         await pool.query(
@@ -55,33 +57,41 @@ app.post('/api/save', async (req, res) => {
             [soil,temp,hum,flow]
         );
         await pool.query(
-            'INSERT INTO system_status (mode,pump,min_val,max_val,next_time) VALUES ($1,$2,$3,$4,$5)',
-            [mode, flow>0, min, max, next]
             `INSERT INTO system_status (mode,pump,min_val,max_val,next_time,pump_power,schedules)
              VALUES ($1,$2,$3,$4,$5,$6,$7)`,
             [mode, flow>0, min, max, next, pump_power ?? 36, JSON.stringify(schedule ?? [])]
         );
         res.json({ status: 'success' });
     } catch(err){
-@@ -69,7 +72,7 @@
+        console.error(err);
+        res.status(500).json({ status: 'error' });
+    }
+});
+
+// ================= API lấy dữ liệu sensor =================
 app.get('/api/data', async (req,res)=>{
     try{
         const result = await pool.query('SELECT * FROM sensor_data ORDER BY id DESC LIMIT 1');
-        res.json(result.rows[0]);
         res.json(result.rows[0] || {});
     }catch(err){
         console.error(err);
         res.status(500).json({status:'error'});
-@@ -80,7 +83,7 @@
+    }
+});
+
+// ================= API lấy trạng thái =================
 app.get('/api/status', async (req,res)=>{
     try{
         const result = await pool.query('SELECT * FROM system_status ORDER BY id DESC LIMIT 1');
-        res.json(result.rows[0]);
         res.json(result.rows[0] || {});
     }catch(err){
         console.error(err);
         res.status(500).json({status:'error'});
-@@ -92,9 +95,12 @@
+    }
+});
+
+// ================= API lệnh cho ESP =================
+app.get('/api/command', async (req,res)=>{
     try{
         const result = await pool.query('SELECT * FROM system_status ORDER BY id DESC LIMIT 1');
         const s = result.rows[0];
@@ -94,11 +104,12 @@ app.get('/api/status', async (req,res)=>{
         res.send(cmd);
     }catch(err){
         console.error(err);
-@@ -104,13 +110,19 @@
+        res.status(500).send('ERROR');
+    }
+});
 
 // ================= API điều khiển từ UI =================
 app.post('/api/control', async (req,res)=>{
-    const { pump, mode } = req.body;
     const { pump, mode, pump_power, add_schedule, remove_schedule } = req.body;
     try{
         const lastData = await pool.query('SELECT * FROM system_status ORDER BY id DESC LIMIT 1');
@@ -109,11 +120,17 @@ app.post('/api/control', async (req,res)=>{
         if(remove_schedule !== undefined) schedules.splice(remove_schedule,1);
 
         await pool.query(
-            'INSERT INTO system_status (mode,pump,min_val,max_val,next_time) VALUES ($1,$2,$3,$4,$5)',
-            [mode, pump, last.min_val, last.max_val, last.next_time]
             `INSERT INTO system_status (mode,pump,min_val,max_val,next_time,pump_power,schedules)
              VALUES ($1,$2,$3,$4,$5,$6,$7)`,
             [mode ?? last.mode, pump ?? last.pump, last.min_val, last.max_val, last.next_time, pump_power ?? last.pump_power, JSON.stringify(schedules)]
         );
         res.json({status:'success'});
     }catch(err){
+        console.error(err);
+        res.status(500).json({status:'error'});
+    }
+});
+
+// ================= RUN =================
+const PORT = process.env.PORT || 3000;
+app.listen(PORT, ()=>console.log(`🚀 Server running on port ${PORT}`));
