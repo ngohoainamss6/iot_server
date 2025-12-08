@@ -4,16 +4,16 @@ const cors = require('cors');
 const { Pool } = require('pg');
 
 const app = express();
-app.use(cors()); // cho phép static site fetch API
+app.use(cors());
 app.use(bodyParser.json());
 app.use(bodyParser.urlencoded({ extended: true }));
 
 // ================= PostgreSQL =================
 const pool = new Pool({
-    user: 'iot_database_uhsn_wxop_user',                      // User Render
-    host: 'dpg-d4r9l5ogjchc73bomesg-a',       // Host Render
-    database: 'iot_database_uhsn_wxop',         // DB Name
-    password: 'ef4xs9jYCrceOnMJOkZ7KdLdDR6v2sXr',             // Password Render
+    user: 'iot_database_uhsn_wxop_user',              
+    host: 'dpg-d4r9l5ogjchc73bomesg-a',       
+    database: 'iot_database_uhsn_wxop',        
+    password: 'ef4xs9jYCrceOnMJOkZ7KdLdDR6v2sXr',            
     port: 5432,
 });
 
@@ -42,28 +42,25 @@ async function initDB() {
         );
     `);
 
-    const res = await pool.query('SELECT COUNT(*) FROM system_status');
-    if (parseInt(res.rows[0].count) === 0) {
-        await pool.query('INSERT INTO system_status (mode, pump) VALUES ($1,$2)', ['AUTO', false]);
-        console.log("✅ Thêm row mặc định cho system_status");
-    }
+    console.log("✅ Database ready");
 }
 
-initDB().then(() => console.log("✅ Database ready"))
-        .catch(err => console.error("❌ DB init error:", err));
+initDB().catch(err => console.error("❌ DB init error:", err));
 
 // ================= API nhận dữ liệu từ ESP =================
 app.post('/api/save', async (req, res) => {
     const { soil, temp, hum, flow, mode, min, max, next } = req.body;
     try {
+        // Lưu sensor_data
         await pool.query(
             'INSERT INTO sensor_data (soil, temp, hum, flow) VALUES ($1,$2,$3,$4)',
             [soil, temp, hum, flow]
         );
 
+        // Lưu trạng thái mới vào system_status (INSERT mỗi lần)
         await pool.query(
-            'UPDATE system_status SET mode=$1, min_val=$2, max_val=$3, next_time=$4, last_update=NOW() WHERE id=(SELECT id FROM system_status ORDER BY id DESC LIMIT 1)',
-            [mode, min, max, next]
+            'INSERT INTO system_status (mode, pump, min_val, max_val, next_time, last_update) VALUES ($1,$2,$3,$4,$5,NOW())',
+            [mode, flow > 0, min, max, next]
         );
 
         res.json({ status: 'success' });
@@ -73,11 +70,22 @@ app.post('/api/save', async (req, res) => {
     }
 });
 
-// ================= API trả trạng thái =================
+// ================= API trả trạng thái mới nhất =================
 app.get('/api/status', async (req, res) => {
     try {
-        const result = await pool.query('SELECT * FROM system_status ORDER BY id DESC LIMIT 1');
+        const result = await pool.query('SELECT * FROM system_status ORDER BY last_update DESC LIMIT 1');
         res.json(result.rows[0]);
+    } catch (err) {
+        console.error(err);
+        res.status(500).json({ status: 'error' });
+    }
+});
+
+// ================= API lấy toàn bộ lịch sử system_status =================
+app.get('/api/status/history', async (req, res) => {
+    try {
+        const result = await pool.query('SELECT * FROM system_status ORDER BY last_update DESC');
+        res.json(result.rows);
     } catch (err) {
         console.error(err);
         res.status(500).json({ status: 'error' });
@@ -87,7 +95,7 @@ app.get('/api/status', async (req, res) => {
 // ================= API lệnh cho ESP =================
 app.get('/api/command', async (req, res) => {
     try {
-        const result = await pool.query('SELECT * FROM system_status ORDER BY id DESC LIMIT 1');
+        const result = await pool.query('SELECT * FROM system_status ORDER BY last_update DESC LIMIT 1');
         const status = result.rows[0];
         let cmd = '';
         cmd += status.pump ? 'PUMP:ON;' : 'PUMP:OFF;';
@@ -103,8 +111,9 @@ app.get('/api/command', async (req, res) => {
 app.post('/api/control', async (req, res) => {
     const { pump, mode } = req.body;
     try {
+        // INSERT trạng thái mới vào system_status
         await pool.query(
-            'UPDATE system_status SET pump=$1, mode=$2, last_update=NOW() WHERE id=(SELECT id FROM system_status ORDER BY id DESC LIMIT 1)',
+            'INSERT INTO system_status (pump, mode, last_update) VALUES ($1,$2,NOW())',
             [pump, mode]
         );
         res.json({ status: 'success' });
@@ -114,18 +123,27 @@ app.post('/api/control', async (req, res) => {
     }
 });
 
-
 // ================= API lấy dữ liệu sensor =================
 app.get('/api/data', async (req, res) => {
-  try {
-    const result = await pool.query('SELECT * FROM sensor_data ORDER BY id DESC LIMIT 1');
-    res.json(result.rows); // trả về dạng mảng
-  } catch (err) {
-    console.error(err);
-    res.status(500).json({ status: 'error' });
-  }
+    try {
+        const result = await pool.query('SELECT * FROM sensor_data ORDER BY id DESC LIMIT 1');
+        res.json(result.rows);
+    } catch (err) {
+        console.error(err);
+        res.status(500).json({ status: 'error' });
+    }
 });
 
+// ================= API lấy lịch sử sensor_data =================
+app.get('/api/data/history', async (req, res) => {
+    try {
+        const result = await pool.query('SELECT * FROM sensor_data ORDER BY id DESC');
+        res.json(result.rows);
+    } catch (err) {
+        console.error(err);
+        res.status(500).json({ status: 'error' });
+    }
+});
 
 // ================= RUN SERVER =================
 const PORT = process.env.PORT || 3000;
