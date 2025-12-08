@@ -1,216 +1,120 @@
-<!DOCTYPE html>
-<html lang="vi">
-<head>
-<meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>🌱 IoT Smart Garden Dashboard</title>
-<link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/css/bootstrap.min.css" rel="stylesheet">
-<style>
-body { background: #f5f7fa; font-family: 'Segoe UI', sans-serif; }
-.card { border-radius: 15px; box-shadow: 0 8px 20px rgba(0,0,0,0.12); margin-bottom: 20px; text-align:center; padding:20px;}
-.sensor-value { font-size: 2rem; font-weight: bold; margin-top:10px; }
-.gradient-card { background: linear-gradient(135deg,#6dd5ed,#2193b0); color:#fff; }
-.gradient-card2 { background: linear-gradient(135deg,#f093fb,#f5576c); color:#fff; }
-.gradient-card3 { background: linear-gradient(135deg,#43e97b,#38f9d7); color:#fff; }
-</style>
-</head>
-<body>
-<div class="container py-4">
-<h1 class="fw-bold text-center mb-4">🌱 IoT Smart Garden Dashboard</h1>
+const express = require('express');
+const bodyParser = require('body-parser');
+const cors = require('cors');
+const { Pool } = require('pg');
 
-<div class="row g-3 mb-3">
-  <div class="col-md-4"><div class="card gradient-card"><div>🌿 Độ ẩm đất</div><div class="sensor-value" id="soil">- %</div></div></div>
-  <div class="col-md-4"><div class="card gradient-card2"><div>🌤 Nhiệt độ</div><div class="sensor-value" id="temp">- °C</div></div></div>
-  <div class="col-md-4"><div class="card gradient-card3"><div>💧 Độ ẩm KK</div><div class="sensor-value" id="hum">- %</div></div></div>
-</div>
+const app = express();
+app.use(cors());
+app.use(bodyParser.json());
+app.use(bodyParser.urlencoded({ extended: true }));
 
-<div class="row g-3 mb-3">
-  <div class="col-md-3"><div class="card"><div>Chế độ hiện tại</div><div class="sensor-value" id="currentMode">-</div></div></div>
-  <div class="col-md-3"><div class="card"><div>Bơm hiện tại</div><div class="sensor-value" id="pumpStatusText">-</div></div></div>
-  <div class="col-md-3"><div class="card"><div>📉 Min Threshold</div><div class="sensor-value" id="min_val">- %</div></div></div>
-  <div class="col-md-3"><div class="card"><div>📈 Max Threshold</div><div class="sensor-value" id="max_val">- %</div></div></div>
-</div>
+// ================= PostgreSQL =================
+const pool = new Pool({
+  user: 'iot_database_uhsn_wxop_user',
+  host: 'dpg-d4r9l5ogjchc73bomesg-a',
+  database: 'iot_database_uhsn_wxop',
+  password: 'ef4xs9jYCrceOnMJOkZ7KdLdDR6v2sXr',
+  port: 5432,
+});
 
-<div class="row g-3 mb-3">
-  <div class="col-md-3"><div class="card"><div>🚿 Dòng chảy</div><div class="sensor-value" id="flow">-</div></div></div>
-  <div class="col-md-3"><div class="card"><div>⏱️ Thời gian tưới tiếp theo</div><div class="sensor-value" id="next_time">- phút</div></div></div>
-</div>
+// ================= INIT TABLES =================
+async function initDB() {
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS sensor_data (
+      id SERIAL PRIMARY KEY,
+      soil INT, temp FLOAT, hum FLOAT, flow INT,
+      time TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+    );`);
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS system_status (
+      id SERIAL PRIMARY KEY,
+      mode VARCHAR(20) DEFAULT 'AUTO',
+      pump BOOLEAN DEFAULT FALSE,
+      min_val INT DEFAULT 30,
+      max_val INT DEFAULT 70,
+      next_time INT DEFAULT 0,
+      pump_power INT DEFAULT 36,
+      schedules JSON DEFAULT '[]',
+      time TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+    );`);
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS command_queue (
+      id SERIAL PRIMARY KEY,
+      pump BOOLEAN, mode VARCHAR(20),
+      pump_power INT, schedules JSON,
+      status VARCHAR(20) DEFAULT 'pending',
+      created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+    );`);
+  console.log("✅ Database ready");
+}
+initDB().catch(console.error);
 
-<div class="row g-3 mt-3">
-  <div class="col-md-4">
-    <div class="card p-3 text-center">
-      <div>💡 Chọn chế độ</div>
-      <select id="modeSelect" class="form-select mt-2">
-        <option value="AUTO">AUTO</option>
-        <option value="MANUAL">MANUAL</option>
-        <option value="SCHEDULE">SCHEDULE</option>
-        <option value="SLEEP">SLEEP</option>
-      </select>
-      <button class="btn btn-primary mt-2" id="modeApply">Gửi lệnh</button>
-    </div>
-  </div>
-
-  <div class="col-md-4">
-    <div class="card p-3 text-center">
-      <div>🚰 Bật/Tắt bơm</div>
-      <div class="form-check form-switch d-flex justify-content-center mt-3">
-        <input class="form-check-input" type="checkbox" id="pumpSwitch" style="transform: scale(1.8); cursor:pointer;">
-      </div>
-    </div>
-  </div>
-
-  <div class="col-md-4">
-    <div class="card p-3 text-center">
-      <div>⚡ Công suất bơm (%)</div>
-      <input type="range" class="form-range" min="0" max="100" step="1" id="pumpPower">
-      <span id="pumpPowerLabel">36%</span>
-    </div>
-  </div>
-</div>
-
-<div class="row g-3 mt-3">
-  <div class="col-md-12">
-    <div class="card p-3">
-      <h5>Lịch tưới</h5>
-      <div id="scheduleList" class="mb-2"></div>
-      <div class="input-group mb-2">
-        <input type="time" id="scheduleTime" class="form-control">
-        <button class="btn btn-primary" id="addScheduleBtn">Thêm lịch</button>
-      </div>
-    </div>
-  </div>
-</div>
-
-<div class="row g-3 mt-3">
-  <div class="col-md-12">
-    <div class="card p-3">
-      <h5>Lệnh chờ ESP thực hiện</h5>
-      <div id="commandList">-</div>
-    </div>
-  </div>
-</div>
-</div>
-
-<script>
-const API_BASE = "https://iot-server-yc6r.onrender.com";
-
-// =============== SWITCH BƠM ===============
-const pumpSwitch = document.getElementById('pumpSwitch');
-const pumpStatusText = document.getElementById('pumpStatusText');
-
-pumpSwitch.addEventListener('change', async () => {
-  const newState = pumpSwitch.checked;
-  pumpStatusText.textContent = newState ? "Đang bật..." : "Đang tắt...";
+// ================= API FROM ESP =================
+app.post('/api/save', async (req, res) => {
+  const { soil, temp, hum, flow, mode, min, max, next, pump_power, schedule } = req.body;
   try {
-    const res = await fetch(`${API_BASE}/api/control`, {
-      method:'POST',
-      headers:{'Content-Type':'application/json'},
-      body: JSON.stringify({ pump: newState })
-    });
-    const data = await res.json();
-    if (data.status === "success") {
-      pumpStatusText.textContent = newState ? "BẬT" : "TẮT";
-    } else {
-      pumpSwitch.checked = !newState;
-      pumpStatusText.textContent = "❌ Lỗi!";
-    }
-  } catch(err){
-    console.error(err);
-    pumpSwitch.checked = !newState;
-    pumpStatusText.textContent = "❌ Lỗi mạng!";
-  }
+    await pool.query('INSERT INTO sensor_data (soil,temp,hum,flow) VALUES ($1,$2,$3,$4)', [soil, temp, hum, flow]);
+    let scheduleData = [];
+    if (schedule) try { scheduleData = JSON.parse(schedule); } catch { scheduleData = []; }
+    await pool.query(
+      `INSERT INTO system_status (mode,pump,min_val,max_val,next_time,pump_power,schedules)
+       VALUES ($1,$2,$3,$4,$5,$6,$7)`,
+      [mode, flow>0, min, max, next, pump_power ?? 36, scheduleData]
+    );
+    res.json({ status:'success' });
+  } catch(e){ console.error(e); res.status(500).json({status:'error'}); }
 });
 
-function updatePumpUI(pump){
-  pumpSwitch.checked = !!pump;
-  pumpStatusText.textContent = pump ? "BẬT" : "TẮT";
-}
-
-// =============== FETCH DỮ LIỆU ===============
-async function fetchData() {
+// ================= API UI =================
+app.get('/api/data', async (_,res)=>{
+  const r = await pool.query('SELECT * FROM sensor_data ORDER BY id DESC LIMIT 1');
+  res.json(r.rows[0] || {});
+});
+app.get('/api/status', async (_,res)=>{
+  const r = await pool.query('SELECT * FROM system_status ORDER BY id DESC LIMIT 1');
+  res.json(r.rows[0] || {});
+});
+app.post('/api/control', async (req,res)=>{
+  const { pump, mode, pump_power, add_schedule, remove_schedule } = req.body;
+  console.log("🧭 Control received:", req.body);
   try {
-    const sensorRes = await fetch(`${API_BASE}/api/data`);
-    const sensor = await sensorRes.json();
-    const statusRes = await fetch(`${API_BASE}/api/status`);
-    const status = await statusRes.json();
+    const lastData = await pool.query('SELECT * FROM command_queue ORDER BY id DESC LIMIT 1');
+    const last = lastData.rows[0] || {};
+    let schedules = [];
+    if (last.schedules) try { schedules = JSON.parse(last.schedules); } catch { schedules = []; }
+    if (add_schedule) schedules.push(add_schedule);
+    if (remove_schedule !== undefined && remove_schedule < schedules.length) schedules.splice(remove_schedule,1);
 
-    document.getElementById('soil').textContent = sensor.soil ?? '- %';
-    document.getElementById('temp').textContent = sensor.temp ?? '- °C';
-    document.getElementById('hum').textContent = sensor.hum ?? '- %';
-    document.getElementById('flow').textContent = sensor.flow ?? '-';
+    let newPump;
+    if (pump === true || pump === "true" || pump === 1) newPump = true;
+    else if (pump === false || pump === "false" || pump === 0) newPump = false;
+    else newPump = last?.pump ?? false;
 
-    document.getElementById('currentMode').textContent = status.mode ?? '-';
-    document.getElementById('min_val').textContent = status.min_val ?? '- %';
-    document.getElementById('max_val').textContent = status.max_val ?? '- %';
-    document.getElementById('next_time').textContent = status.next_time ?? '- phút';
-    document.getElementById('pumpPower').value = status.pump_power ?? 36;
-    document.getElementById('pumpPowerLabel').textContent = (status.pump_power ?? 36)+'%';
-    updatePumpUI(status.pump);
-    updateScheduleUI(Array.isArray(status.schedules) ? status.schedules : []);
+    const newMode = mode ?? last?.mode ?? "AUTO";
+    const newPumpPower = pump_power ?? last?.pump_power ?? 36;
 
-    const cmdRes = await fetch(`${API_BASE}/api/command`);
-    const cmdStr = await cmdRes.text();
-    document.getElementById('commandList').textContent = cmdStr || '-';
-  } catch(err){ console.error(err); }
-}
+    await pool.query(`INSERT INTO command_queue (pump,mode,pump_power,schedules) VALUES ($1,$2,$3,$4)`,
+      [newPump,newMode,newPumpPower,JSON.stringify(schedules)]);
 
-// =============== MODE ===============
-document.getElementById('modeApply').addEventListener('click', async ()=>{
-  const mode = document.getElementById('modeSelect').value;
-  await fetch(`${API_BASE}/api/control`, {
-    method:'POST',
-    headers:{'Content-Type':'application/json'},
-    body: JSON.stringify({ mode })
-  });
+    const sysData = await pool.query('SELECT * FROM system_status ORDER BY id DESC LIMIT 1');
+    const lastSys = sysData.rows[0] || {};
+    await pool.query(
+      `INSERT INTO system_status (mode,pump,min_val,max_val,next_time,pump_power,schedules)
+       VALUES ($1,$2,$3,$4,$5,$6,$7)`,
+      [newMode,newPump,lastSys.min_val ?? 30,lastSys.max_val ?? 70,lastSys.next_time ?? 0,newPumpPower,JSON.stringify(schedules)]
+    );
+
+    res.json({status:'success'});
+  } catch(e){ console.error(e); res.status(500).json({status:'error'}); }
+});
+app.get('/api/command', async (_,res)=>{
+  const r = await pool.query('SELECT * FROM command_queue ORDER BY id DESC LIMIT 1');
+  const cmd = r.rows[0];
+  if(!cmd) return res.send('');
+  let cmdStr = `${cmd.pump?'PUMP:ON;':'PUMP:OFF;'}MODE:${cmd.mode};POWER:${cmd.pump_power};`;
+  if(cmd.schedules) cmdStr += 'SCHEDULES:'+JSON.stringify(cmd.schedules)+';';
+  res.send(cmdStr);
 });
 
-// =============== CÔNG SUẤT ===============
-const pumpPowerInput = document.getElementById('pumpPower');
-pumpPowerInput.addEventListener('input', ()=> {
-  document.getElementById('pumpPowerLabel').textContent = pumpPowerInput.value+'%';
-});
-pumpPowerInput.addEventListener('change', async ()=>{
-  await fetch(`${API_BASE}/api/control`, {
-    method:'POST',
-    headers:{'Content-Type':'application/json'},
-    body: JSON.stringify({ pump_power: parseInt(pumpPowerInput.value) })
-  });
-});
-
-// =============== LỊCH TƯỚI ===============
-function updateScheduleUI(schedules){
-  const list = document.getElementById('scheduleList');
-  list.innerHTML = '';
-  schedules.forEach((t,i)=>{
-    const div = document.createElement('div');
-    div.className='d-flex justify-content-between align-items-center mb-1';
-    div.innerHTML = `<span>${t.hour.toString().padStart(2,'0')}:${t.minute.toString().padStart(2,'0')}</span>
-                     <button class="btn btn-sm btn-danger" onclick="removeSchedule(${i})">X</button>`;
-    list.appendChild(div);
-  });
-}
-document.getElementById('addScheduleBtn').addEventListener('click', async ()=>{
-  const val = document.getElementById('scheduleTime').value;
-  if(!val) return;
-  const [hour,minute] = val.split(':').map(Number);
-  await fetch(`${API_BASE}/api/control`,{
-    method:'POST',
-    headers:{'Content-Type':'application/json'},
-    body:JSON.stringify({add_schedule:{hour,minute}})
-  });
-  document.getElementById('scheduleTime').value='';
-});
-async function removeSchedule(index){
-  await fetch(`${API_BASE}/api/control`,{
-    method:'POST',
-    headers:{'Content-Type':'application/json'},
-    body:JSON.stringify({remove_schedule:index})
-  });
-}
-
-// =============== AUTO REFRESH ===============
-setInterval(fetchData,2000);
-fetchData();
-</script>
-</body>
-</html>
+// ================= RUN =================
+app.listen(process.env.PORT||3000,()=>console.log("🚀 Server running on port 3000"));
