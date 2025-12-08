@@ -1,0 +1,5 @@
+body { font-family: sans-serif; padding: 20px; }
+.dashboard { display: flex; gap: 10px; flex-wrap: wrap; }
+.box { padding: 20px; border: 1px solid #ccc; border-radius: 8px; width: 120px; text-align: center; background: #f9f9f9; }
+.controls { margin-top: 20px; }
+button { padding: 10px 20px; margin-right: 10px; }
