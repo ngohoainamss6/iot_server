@@ -1,3 +1,4 @@
+// server.js
 const express = require('express');
 const bodyParser = require('body-parser');
 const cors = require('cors');
@@ -100,7 +101,7 @@ app.get('/api/command', async (req,res)=>{
         cmd += s.pump ? 'PUMP:ON;' : 'PUMP:OFF;';
         cmd += 'MODE:' + s.mode + ';';
         cmd += 'POWER:' + s.pump_power + ';';
-        if(s.schedules) cmd += 'SCHEDULES:' + s.schedules + ';';
+        if(s.schedules) cmd += 'SCHEDULES:' + JSON.stringify(s.schedules) + ';';
         res.send(cmd);
     }catch(err){
         console.error(err);
@@ -113,8 +114,8 @@ app.post('/api/control', async (req,res)=>{
     const { pump, mode, pump_power, add_schedule, remove_schedule } = req.body;
     try{
         const lastData = await pool.query('SELECT * FROM system_status ORDER BY id DESC LIMIT 1');
-        const last = lastData.rows[0];
-        const schedules = last && last.schedules ? JSON.parse(last.schedules) : [];
+        const last = lastData.rows[0] || {};
+        const schedules = last.schedules ? JSON.parse(last.schedules) : [];
 
         if(add_schedule) schedules.push(add_schedule);
         if(remove_schedule !== undefined) schedules.splice(remove_schedule,1);
@@ -122,7 +123,15 @@ app.post('/api/control', async (req,res)=>{
         await pool.query(
             `INSERT INTO system_status (mode,pump,min_val,max_val,next_time,pump_power,schedules)
              VALUES ($1,$2,$3,$4,$5,$6,$7)`,
-            [mode ?? last.mode, pump ?? last.pump, last.min_val, last.max_val, last.next_time, pump_power ?? last.pump_power, JSON.stringify(schedules)]
+            [
+                mode ?? last.mode ?? 'AUTO',
+                pump ?? last.pump ?? false,
+                last.min_val ?? 30,
+                last.max_val ?? 70,
+                last.next_time ?? 0,
+                pump_power ?? last.pump_power ?? 36,
+                JSON.stringify(schedules)
+            ]
         );
         res.json({status:'success'});
     }catch(err){
