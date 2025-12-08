@@ -57,11 +57,19 @@ app.post('/api/save', async (req, res) => {
             'INSERT INTO sensor_data (soil,temp,hum,flow) VALUES ($1,$2,$3,$4)',
             [soil,temp,hum,flow]
         );
+        // Chuyển schedule nếu là string
+        let scheduleData = schedule;
+        if(typeof schedule === 'string'){
+            try { scheduleData = JSON.parse(schedule); } 
+            catch(e){ scheduleData = []; }
+        }
+        
         await pool.query(
             `INSERT INTO system_status (mode,pump,min_val,max_val,next_time,pump_power,schedules)
              VALUES ($1,$2,$3,$4,$5,$6,$7)`,
-            [mode, flow>0, min, max, next, pump_power ?? 36, JSON.stringify(schedule ?? [])]
+            [mode, flow>0, min, max, next, pump_power ?? 36, scheduleData]
         );
+
         res.json({ status: 'success' });
     } catch(err){
         console.error(err);
