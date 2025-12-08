@@ -114,40 +114,36 @@ app.get('/api/status', async (req,res)=>{
 });
 
 // ================= API UI gửi lệnh mới =================
-app.post('/api/control', async (req,res)=>{
+app.post('/api/control', async (req, res) => {
     const { pump, mode, pump_power, add_schedule, remove_schedule } = req.body;
-    try{
-        const lastData = await pool.query('SELECT * FROM system_status ORDER BY id DESC LIMIT 1');
+    try {
+        // Lấy lệnh trước đó để tham khảo schedule
+        const lastData = await pool.query('SELECT * FROM command_queue ORDER BY id DESC LIMIT 1');
         const last = lastData.rows[0] || {};
         const schedules = last.schedules ? JSON.parse(last.schedules) : [];
 
-        if(add_schedule) schedules.push(add_schedule);
-        if(remove_schedule !== undefined) schedules.splice(remove_schedule,1);
+        // Thêm hoặc xóa lịch nếu có
+        if (add_schedule) schedules.push(add_schedule);
+        if (remove_schedule !== undefined) schedules.splice(remove_schedule, 1);
 
-        const newPump = pump ?? last.pump ?? false;
-        const newMode = mode ?? last.mode ?? 'AUTO';
-        const newPumpPower = pump_power ?? last.pump_power ?? 36;
+        const newPump = pump ?? (last?.pump ?? false);
+        const newMode = mode ?? (last?.mode ?? 'AUTO');
+        const newPumpPower = pump_power ?? (last?.pump_power ?? 36);
 
         // Lưu lệnh vào command_queue để ESP lấy
         await pool.query(
             `INSERT INTO command_queue (pump, mode, pump_power, schedules)
-             VALUES ($1,$2,$3,$4)`,
+             VALUES ($1, $2, $3, $4)`,
             [newPump, newMode, newPumpPower, JSON.stringify(schedules)]
         );
 
-        // Cập nhật system_status để UI vẫn hiển thị
-        await pool.query(
-            `INSERT INTO system_status (mode,pump,min_val,max_val,next_time,pump_power,schedules)
-             VALUES ($1,$2,$3,$4,$5,$6,$7)`,
-            [newMode, newPump, last.min_val ?? 30, last.max_val ?? 70, last.next_time ?? 0, newPumpPower, JSON.stringify(schedules)]
-        );
-
-        res.json({status:'success'});
-    }catch(err){
+        res.json({ status: 'success' });
+    } catch (err) {
         console.error(err);
-        res.status(500).json({status:'error'});
+        res.status(500).json({ status: 'error' });
     }
 });
+
 
 // ================= API ESP lấy lệnh mới =================
 app.get('/api/command', async (req,res)=>{
