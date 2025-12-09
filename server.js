@@ -128,7 +128,7 @@ app.get('/api/command', async (_,res)=>{
 app.get('/api/history', async (_, res) => {
   try {
     const r = await pool.query(`
-      SELECT id, pump, mode, pump_power, created_at
+      SELECT id, pump, mode, pump_power, schedules, created_at
       FROM command_queue
       ORDER BY id DESC
       LIMIT 10
