@@ -113,6 +113,8 @@ app.post('/api/control', async (req,res)=>{
     res.json({status:'success'});
   } catch(e){ console.error(e); res.status(500).json({status:'error'}); }
 });
+
+
 app.get('/api/command', async (_,res)=>{
   const r = await pool.query('SELECT * FROM command_queue ORDER BY id DESC LIMIT 1');
   const cmd = r.rows[0];
@@ -121,6 +123,23 @@ app.get('/api/command', async (_,res)=>{
   if(cmd.schedules) cmdStr += 'SCHEDULES:'+JSON.stringify(cmd.schedules)+';';
   res.send(cmdStr);
 });
+
+// ================= API LỊCH SỬ ĐIỀU KHIỂN =================
+app.get('/api/history', async (_, res) => {
+  try {
+    const r = await pool.query(`
+      SELECT id, pump, mode, pump_power, created_at
+      FROM command_queue
+      ORDER BY id DESC
+      LIMIT 10
+    `);
+    res.json(r.rows);
+  } catch (e) {
+    console.error(e);
+    res.status(500).json({ status: 'error' });
+  }
+});
+
 
 // ================= RUN =================
 app.listen(process.env.PORT||3000,()=>console.log("🚀 Server running on port 3000"));
