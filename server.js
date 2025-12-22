@@ -4,7 +4,12 @@ const cors = require('cors');
 const { Pool } = require('pg');
 
 const app = express();
-app.use(cors());   
+app.use(cors());
+
+// cho phép tải file firmwave trên github
+const path = require('path');
+app.use('/firmware', express.static(path.join(__dirname, 'firmware')));
+
 app.use(bodyParser.json());
 app.use(bodyParser.urlencoded({ extended: true }));
 
